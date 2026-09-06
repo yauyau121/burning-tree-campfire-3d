@@ -1,0 +1,67 @@
+name: Build burning-tree-campfire-3d (Self-Hosted Runner - Zero Secrets)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_platform:
+        description: 'Target Platform to build'
+        required: true
+        default: 'StandaloneWindows64'
+        type: choice
+        options:
+          - StandaloneWindows64
+          - StandaloneLinux64
+          - WebGL
+          - Android
+
+jobs:
+  build-native:
+    name: Native Build (${{ inputs.target_platform }})
+    runs-on: [ self-hosted, windows ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compile Application natively via Local Unity 6
+        shell: powershell
+        run: |
+          $unity = "C:\Program Files\Unity\Hub\Editor\6000.5.10f1\Editor\Unity.exe"
+          $target = "${{ inputs.target_platform }}"
+          $targetDir = "Build\$target"
+          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+          
+          $outputBinary = switch ($target) {
+              "StandaloneWindows64" { Join-Path $targetDir "burning-tree-campfire-3d.exe" }
+              "StandaloneLinux64"   { Join-Path $targetDir "burning-tree-campfire-3d.x86_64" }
+              "Android"             { Join-Path $targetDir "burning-tree-campfire-3d.apk" }
+              "WebGL"               { $targetDir }
+              default               { Join-Path $targetDir "burning-tree-campfire-3d" }
+          }
+
+          $argsList = @(
+              "-batchmode",
+              "-quit",
+              "-projectPath", (Get-Location).Path,
+              "-executeMethod", "OmniUnityBuild.PerformBuild",
+              "-customBuildTarget", $target,
+              "-customBuildPath", $outputBinary,
+              "-logFile", "Build\build_$target.log"
+          )
+          
+          $proc = Start-Process -FilePath $unity -ArgumentList $argsList -PassThru -Wait -NoNewWindow
+          if (Test-Path $outputBinary) {
+              Write-Host "[SUCCESS] Native build succeeded for $target!" -ForegroundColor Green
+          } else {
+              Write-Error "Build failed. Check log: Build\build_$target.log"
+              exit 1
+          }
+
+      - name: Upload Native Artifact to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: burning-tree-campfire-3d-${{ inputs.target_platform }}-Native
+          path: Build/${{ inputs.target_platform }}
+          if-no-files-found: error
+          retention-days: 14

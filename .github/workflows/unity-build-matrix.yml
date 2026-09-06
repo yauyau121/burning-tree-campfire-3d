@@ -1,0 +1,77 @@
+name: Build burning-tree-campfire-3d Across Platforms (Cloud Matrix)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-matrix:
+    name: Build ${{ matrix.targetPlatform }} on ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        targetPlatform:
+          - StandaloneWindows64
+          - StandaloneLinux64
+          - StandaloneOSX
+          - WebGL
+          - Android
+          - iOS
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Cache Unity Library
+        uses: actions/cache@v6
+        with:
+          path: Library
+          key: Library-${{ matrix.targetPlatform }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-${{ matrix.targetPlatform }}-
+            Library-
+
+      - name: Ensure Library folder exists
+        run: mkdir -p Library
+
+      - name: Build Unity Project (${{ matrix.targetPlatform }})
+        uses: game-ci/unity-builder@v5
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          targetPlatform: ${{ matrix.targetPlatform }}
+          unityVersion: 6000.5.10f1
+          projectPath: .
+          buildsPath: Build
+          buildMethod: OmniUnityBuild.PerformBuild
+          allowDirtyBuild: true
+
+      - name: Generate SHA-256 Checksum
+        run: |
+          sudo chown -R $USER:$USER . || true
+          mkdir -p "Build/${{ matrix.targetPlatform }}"
+          if [ -d "Build/${{ matrix.targetPlatform }}" ]; then
+            cd "Build/${{ matrix.targetPlatform }}" && find . -type f ! -name "SHA256SUMS.txt" -exec sha256sum {} + > SHA256SUMS.txt || true
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: burning-tree-campfire-3d-${{ matrix.targetPlatform }}
+          path: Build/${{ matrix.targetPlatform }}
+          if-no-files-found: warn
+          retention-days: 14
