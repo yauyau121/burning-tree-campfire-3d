@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace OmniUnityApp
 {
@@ -47,7 +48,7 @@ namespace OmniUnityApp
             }
 
             // Ensure Directional Light
-            Light dirLight = FindObjectOfType<Light>();
+            Light dirLight = FindAnyObjectByType<Light>();
             if (dirLight == null || dirLight.type != LightType.Directional)
             {
                 GameObject lightObj = new GameObject("Directional Light");
@@ -58,7 +59,7 @@ namespace OmniUnityApp
             }
 
             // Ensure HelloWorldApp exists
-            if (FindObjectOfType<HelloWorldApp>() == null)
+            if (FindAnyObjectByType<HelloWorldApp>() == null)
             {
                 GameObject runner = new GameObject("OmniUnity_Runner");
                 runner.AddComponent<HelloWorldApp>();
@@ -195,7 +196,7 @@ namespace OmniUnityApp
 
         void UpdateSmokeParticle(GameObject p, float speed, Vector3 origin)
         {
-            p.transform.position += Vector3.up * speed * Time.deltaTime + new Vector3(Mathf.Sin(Time.time * 3f + p.GetInstanceID()) * 0.08f, 0f, Mathf.Cos(Time.time * 3f + p.GetInstanceID()) * 0.08f);
+            p.transform.position += Vector3.up * speed * Time.deltaTime + new Vector3(Mathf.Sin(Time.time * 3f + p.GetHashCode()) * 0.08f, 0f, Mathf.Cos(Time.time * 3f + p.GetHashCode()) * 0.08f);
             float progress = (p.transform.position.y - origin.y) / 4.0f;
             float scale = Mathf.Lerp(0.2f, 1.5f, progress);
             p.transform.localScale = Vector3.one * scale * fireIntensity;
