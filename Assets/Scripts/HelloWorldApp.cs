@@ -6,29 +6,27 @@ namespace OmniUnityApp
     public class HelloWorldApp : MonoBehaviour
     {
         // Campfire elements
-        private Vector3 campfireCenter = new Vector3(0, 0, 0);
-        private Light fireLight;
+        private Vector3 campfireCenter = new Vector3(0, 0.1f, 0);
+        private Light campfireLight;
         private float baseLightIntensity = 2.5f;
         private List<GameObject> flameParticles = new List<GameObject>();
         private List<GameObject> smokeParticles = new List<GameObject>();
-        private int maxFlameParticles = 30;
-        private int maxSmokeParticles = 15;
-        private bool isFireActive = false;
-        private float fireIntensity = 1.0f;
+        private int maxParticles = 30;
+        private bool isBurning = false;
+        private float fireIntensity = 0f; // 0 to 1
 
         // Tree elements
         private GameObject proceduralTree;
         private List<Renderer> treeRenderers = new List<Renderer>();
         private Dictionary<Renderer, Color> originalColors = new Dictionary<Renderer, Color>();
-        private float burnProgress = 0f;
+        private float burnProgress = 0f; // 0 to 1
         private float treeHealth = 100f;
-        private bool isTreeBurning = false;
 
         // Camera controls
-        private float cameraDistance = 10.0f;
-        private float cameraYaw = 0.0f;
-        private float cameraPitch = 20.0f;
-        private float cameraSensitivity = 3.0f;
+        private float cameraDistance = 8.0f;
+        private float cameraHeight = 3.0f;
+        private float cameraRotationSpeed = 100.0f;
+        private float currentCameraAngle = 0f;
 
         // UI
         private GUIStyle labelStyle;
@@ -50,13 +48,13 @@ namespace OmniUnityApp
 
             // Ensure Directional Light
             Light dirLight = FindObjectOfType<Light>();
-            if (dirLight == null)
+            if (dirLight == null || dirLight.type != LightType.Directional)
             {
                 GameObject lightObj = new GameObject("Directional Light");
-                dirLight = lightObj.AddComponent<Light>();
-                dirLight.type = LightType.Directional;
-                dirLight.intensity = 1.3f;
-                dirLight.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+                Light l = lightObj.AddComponent<Light>();
+                l.type = LightType.Directional;
+                l.intensity = 1.3f;
+                l.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
             }
 
             // Ensure HelloWorldApp exists
@@ -74,29 +72,16 @@ namespace OmniUnityApp
             SetupScene();
         }
 
-        void InitializeUIStyles()
-        {
-            labelStyle = new GUIStyle
-            {
-                fontSize = 18,
-                normal = { textColor = Color.white }
-            };
-            buttonStyle = new GUIStyle("Button")
-            {
-                fontSize = 16,
-                fontStyle = FontStyle.Bold
-            };
-        }
-
         void SetupScene()
         {
-            // Create ground plane
+            // Create a ground plane
             GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            ground.name = "Ground";
             ground.transform.localScale = Vector3.one * 5f;
-            ground.GetComponent<Renderer>().material.color = new Color(0.3f, 0.2f, 0.15f); // Dirt color
+            ground.GetComponent<Renderer>().material.color = new Color(0.3f, 0.4f, 0.2f);
 
             BuildCampfire(campfireCenter);
-            proceduralTree = BuildProceduralTree(new Vector3(0, 0, 3f), 4.5f);
+            proceduralTree = BuildProceduralTree(new Vector3(0, 0, 2.5f), 4.0f);
 
             // Store tree renderers and original colors
             foreach (Renderer r in proceduralTree.GetComponentsInChildren<Renderer>())
@@ -105,44 +90,67 @@ namespace OmniUnityApp
                 originalColors[r] = r.material.color;
             }
 
-            // Get the light component
-            fireLight = GameObject.Find("CampfireLight")?.GetComponent<Light>();
+            // Initialize particles
+            for (int i = 0; i < maxParticles; i++)
+            {
+                GameObject flame = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                flame.name = "FlameParticle_" + i;
+                flame.transform.localScale = Vector3.zero; // Start invisible
+                flame.transform.position = campfireCenter + Vector3.up * 0.1f;
+                flame.GetComponent<Collider>().enabled = false;
+                flameParticles.Add(flame);
+
+                GameObject smoke = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                smoke.name = "SmokeParticle_" + i;
+                smoke.transform.localScale = Vector3.zero; // Start invisible
+                smoke.transform.position = campfireCenter + Vector3.up * 0.5f;
+                smoke.GetComponent<Collider>().enabled = false;
+                var smokeRend = smoke.GetComponent<Renderer>();
+                if (smokeRend != null)
+                {
+                    smokeRend.material.color = new Color(0.3f, 0.3f, 0.3f, 0.5f);
+                }
+                smokeParticles.Add(smoke);
+            }
         }
 
         void Update()
         {
             UpdateCamera();
 
-            if (isFireActive)
+            if (campfireLight != null)
             {
-                UpdateFireLight();
-                UpdateFlameParticles();
-                UpdateSmokeParticles();
+                campfireLight.intensity = baseLightIntensity * fireIntensity + Mathf.PerlinNoise(Time.time * 8f, 0f) * 1.5f * fireIntensity;
+            }
 
-                if (isTreeBurning)
+            if (isBurning)
+            {
+                // Update flame particles
+                foreach (GameObject p in flameParticles)
+                {
+                    if (p.transform.localScale.x > 0.01f) // Only update visible particles
+                    {
+                        UpdateFlameParticle(p, 2.5f * fireIntensity, campfireCenter);
+                    }
+                }
+
+                // Update smoke particles
+                foreach (GameObject p in smokeParticles)
+                {
+                    if (p.transform.localScale.x > 0.01f)
+                    {
+                        UpdateSmokeParticle(p, 1.5f * fireIntensity, campfireCenter + Vector3.up * 0.5f);
+                    }
+                }
+
+                // Burn simulation
+                if (treeHealth > 0)
                 {
                     UpdateBurnSimulation(fireIntensity, Time.deltaTime);
-                    treeHealth -= fireIntensity * Time.deltaTime * 2f;
+                    treeHealth -= fireIntensity * Time.deltaTime * 5f;
                     treeHealth = Mathf.Max(0, treeHealth);
                 }
             }
-        }
-
-        void UpdateCamera()
-        {
-            if (Input.GetMouseButton(0))
-            {
-                cameraYaw += Input.GetAxis("Mouse X") * cameraSensitivity;
-                cameraPitch -= Input.GetAxis("Mouse Y") * cameraSensitivity;
-                cameraPitch = Mathf.Clamp(cameraPitch, 5f, 80f);
-            }
-
-            Quaternion rotation = Quaternion.Euler(cameraPitch, cameraYaw, 0);
-            Vector3 negDistance = new Vector3(0.0f, 0.0f, -cameraDistance);
-            Vector3 position = rotation * negDistance + campfireCenter + Vector3.up * 2f;
-
-            Camera.main.transform.rotation = rotation;
-            Camera.main.transform.position = position;
         }
 
         void BuildCampfire(Vector3 center)
@@ -164,48 +172,19 @@ namespace OmniUnityApp
             // 2. Flickering Fire Light
             GameObject fireLightObj = new GameObject("CampfireLight");
             fireLightObj.transform.position = center + Vector3.up * 0.5f;
-            Light fireLight = fireLightObj.AddComponent<Light>();
-            fireLight.type = LightType.Point;
-            fireLight.color = new Color(1f, 0.55f, 0.1f);
-            fireLight.range = 10f;
-            fireLight.intensity = 0f; // Start off
-        }
-
-        void UpdateFireLight()
-        {
-            if (fireLight != null)
-            {
-                fireLight.intensity = baseLightIntensity * fireIntensity + Mathf.PerlinNoise(Time.time * 8f, 0f) * 1.5f * fireIntensity;
-            }
-        }
-
-        void UpdateFlameParticles()
-        {
-            while (flameParticles.Count < maxFlameParticles)
-            {
-                GameObject flame = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                flame.name = "FlameParticle";
-                flame.transform.position = campfireCenter + new Vector3(Random.Range(-0.2f, 0.2f), 0.1f, Random.Range(-0.2f, 0.2f));
-                flame.transform.localScale = Vector3.one * 0.1f;
-                flame.GetComponent<Collider>().enabled = false;
-                flameParticles.Add(flame);
-            }
-
-            foreach (GameObject p in flameParticles)
-            {
-                if (p != null)
-                {
-                    UpdateFlameParticle(p, 1.5f * fireIntensity, campfireCenter);
-                }
-            }
+            campfireLight = fireLightObj.AddComponent<Light>();
+            campfireLight.type = LightType.Point;
+            campfireLight.color = new Color(1f, 0.55f, 0.1f);
+            campfireLight.range = 10f;
+            campfireLight.intensity = 0f; // Start off
         }
 
         void UpdateFlameParticle(GameObject p, float speed, Vector3 origin)
         {
             p.transform.position += Vector3.up * speed * Time.deltaTime + new Vector3(Mathf.Sin(Time.time * 5f) * 0.05f, 0f, Mathf.Cos(Time.time * 5f) * 0.05f);
-            float progress = (p.transform.position.y - origin.y) / (2.5f * fireIntensity);
+            float progress = (p.transform.position.y - origin.y) / 2.5f;
             float scale = Mathf.Lerp(0.35f, 0.05f, progress);
-            p.transform.localScale = Vector3.one * scale;
+            p.transform.localScale = Vector3.one * scale * fireIntensity;
             var r = p.GetComponent<Renderer>();
             if (r != null) r.material.color = Color.Lerp(Color.yellow, Color.red, progress);
             if (progress >= 1f)
@@ -214,44 +193,21 @@ namespace OmniUnityApp
             }
         }
 
-        void UpdateSmokeParticles()
+        void UpdateSmokeParticle(GameObject p, float speed, Vector3 origin)
         {
-            while (smokeParticles.Count < maxSmokeParticles)
+            p.transform.position += Vector3.up * speed * Time.deltaTime + new Vector3(Mathf.Sin(Time.time * 3f + p.GetInstanceID()) * 0.08f, 0f, Mathf.Cos(Time.time * 3f + p.GetInstanceID()) * 0.08f);
+            float progress = (p.transform.position.y - origin.y) / 4.0f;
+            float scale = Mathf.Lerp(0.2f, 1.5f, progress);
+            p.transform.localScale = Vector3.one * scale * fireIntensity;
+            var r = p.GetComponent<Renderer>();
+            if (r != null)
             {
-                GameObject smoke = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                smoke.name = "SmokeParticle";
-                smoke.transform.position = campfireCenter + Vector3.up * 1.0f + new Vector3(Random.Range(-0.3f, 0.3f), 0f, Random.Range(-0.3f, 0.3f));
-                smoke.transform.localScale = Vector3.one * 0.2f;
-                smoke.GetComponent<Collider>().enabled = false;
-                var rend = smoke.GetComponent<Renderer>();
-                if (rend != null)
-                {
-                    rend.material.color = new Color(0.2f, 0.2f, 0.2f, 0.5f); // Dark gray translucent
-                }
-                smokeParticles.Add(smoke);
+                Color smokeColor = new Color(0.3f, 0.3f, 0.3f, Mathf.Lerp(0.5f, 0f, progress));
+                r.material.color = smokeColor;
             }
-
-            foreach (GameObject p in smokeParticles)
+            if (progress >= 1f)
             {
-                if (p != null)
-                {
-                    p.transform.position += Vector3.up * 0.5f * Time.deltaTime * fireIntensity + new Vector3(Mathf.Sin(Time.time * 2f) * 0.02f, 0f, Mathf.Cos(Time.time * 2f) * 0.02f);
-                    float progress = (p.transform.position.y - (campfireCenter.y + 1.0f)) / (5f * fireIntensity);
-                    float scale = Mathf.Lerp(0.2f, 1.5f, progress);
-                    p.transform.localScale = Vector3.one * scale;
-                    var rend = p.GetComponent<Renderer>();
-                    if (rend != null)
-                    {
-                        Color c = rend.material.color;
-                        rend.material.color = new Color(c.r, c.g, c.b, Mathf.Lerp(0.5f, 0f, progress));
-                    }
-                    if (progress >= 1f)
-                    {
-                        p.transform.position = campfireCenter + Vector3.up * 1.0f + new Vector3(Random.Range(-0.3f, 0.3f), 0f, Random.Range(-0.3f, 0.3f));
-                        var rendReset = p.GetComponent<Renderer>();
-                        if (rendReset != null) rendReset.material.color = new Color(0.2f, 0.2f, 0.2f, 0.5f);
-                    }
-                }
+                p.transform.position = origin + new Vector3(Random.Range(-0.3f, 0.3f), 0.1f, Random.Range(-0.3f, 0.3f));
             }
         }
 
@@ -303,82 +259,106 @@ namespace OmniUnityApp
 
             foreach (var rend in treeRenderers)
             {
-                if (rend != null && originalColors.ContainsKey(rend))
+                if (rend != null)
                 {
                     rend.material.color = Color.Lerp(originalColors[rend], charredColor, burnProgress);
                     // Shrink leaves slightly
                     if (rend.name.Contains("Foliage"))
                     {
-                        rend.transform.localScale = Vector3.Lerp(Vector3.one * originalColors.Keys.IndexOf(rend), Vector3.one * 0.8f, burnProgress);
+                        rend.transform.localScale = Vector3.one * Mathf.Lerp(originalColors.Keys.ToList().Find(r => r == rend).transform.localScale.x, 0.8f, burnProgress);
                     }
                 }
             }
         }
 
+        void UpdateCamera()
+        {
+            currentCameraAngle += Input.GetAxis("Horizontal") * cameraRotationSpeed * Time.deltaTime;
+            Vector3 cameraPosition = new Vector3(
+                Mathf.Sin(currentCameraAngle * Mathf.Deg2Rad) * cameraDistance,
+                cameraHeight,
+                Mathf.Cos(currentCameraAngle * Mathf.Deg2Rad) * cameraDistance
+            );
+            Camera.main.transform.position = cameraPosition;
+            Camera.main.transform.LookAt(Vector3.up * 1.5f); // Look at the center of the scene
+        }
+
+        void InitializeUIStyles()
+        {
+            labelStyle = new GUIStyle();
+            labelStyle.normal.textColor = Color.white;
+            labelStyle.fontSize = 18;
+            labelStyle.fontStyle = FontStyle.Bold;
+
+            buttonStyle = new GUIStyle("button");
+            buttonStyle.fontSize = 16;
+            buttonStyle.fixedHeight = 30;
+            buttonStyle.fixedWidth = 150;
+        }
+
         void OnGUI()
         {
             GUI.Label(new Rect(10, 10, 300, 30), "Burning Tree Campfire 3D", labelStyle);
-            GUI.Label(new Rect(10, 40, 300, 30), $"Tree Health: {treeHealth:0.0}%", labelStyle);
-            GUI.Label(new Rect(10, 70, 300, 30), $"Fire Intensity: {fireIntensity:0.0}", labelStyle);
+            GUI.Label(new Rect(10, 40, 300, 30), $"Tree Health: {treeHealth:F1}%", labelStyle);
+            GUI.Label(new Rect(10, 70, 300, 30), $"Burn Progress: {burnProgress * 100:F1}%", labelStyle);
+            GUI.Label(new Rect(10, 100, 300, 30), $"Fire Intensity: {fireIntensity * 100:F0}%", labelStyle);
 
-            if (GUI.Button(new Rect(10, 110, 150, 40), "Ignite Campfire", buttonStyle))
+            if (GUI.Button(new Rect(10, Screen.height - 150, 150, 30), "Ignite", buttonStyle))
             {
-                isFireActive = true;
-                fireIntensity = 1.0f;
-                if (fireLight != null) fireLight.intensity = baseLightIntensity;
+                isBurning = true;
+                fireIntensity = 0.5f;
+                foreach (GameObject p in flameParticles) p.transform.localScale = Vector3.one * 0.1f;
+                foreach (GameObject p in smokeParticles) p.transform.localScale = Vector3.one * 0.05f;
             }
-            if (GUI.Button(new Rect(10, 160, 150, 40), "Extinguish Campfire", buttonStyle))
+            if (GUI.Button(new Rect(170, Screen.height - 150, 150, 30), "Extinguish", buttonStyle))
             {
-                isFireActive = false;
+                isBurning = false;
                 fireIntensity = 0f;
-                if (fireLight != null) fireLight.intensity = 0f;
-                foreach (var p in flameParticles) Destroy(p);
-                flameParticles.Clear();
-                foreach (var p in smokeParticles) Destroy(p);
-                smokeParticles.Clear();
+                if (campfireLight != null) campfireLight.intensity = 0f;
+                foreach (GameObject p in flameParticles) p.transform.localScale = Vector3.zero;
+                foreach (GameObject p in smokeParticles) p.transform.localScale = Vector3.zero;
             }
-            if (GUI.Button(new Rect(10, 210, 150, 40), "Increase Fire", buttonStyle))
+            if (GUI.Button(new Rect(10, Screen.height - 110, 150, 30), "Increase Intensity", buttonStyle))
             {
-                fireIntensity = Mathf.Min(fireIntensity + 0.2f, 2.0f);
+                fireIntensity = Mathf.Min(1.0f, fireIntensity + 0.1f);
+                isBurning = true;
             }
-            if (GUI.Button(new Rect(10, 260, 150, 40), "Decrease Fire", buttonStyle))
+            if (GUI.Button(new Rect(170, Screen.height - 110, 150, 30), "Reset", buttonStyle))
             {
-                fireIntensity = Mathf.Max(fireIntensity - 0.2f, 0.1f);
-            }
-            if (GUI.Button(new Rect(10, 310, 150, 40), "Start Tree Burning", buttonStyle))
-            {
-                isTreeBurning = true;
-                isFireActive = true; // Ensure fire is active to burn tree
-                fireIntensity = Mathf.Max(fireIntensity, 1.0f);
-            }
-            if (GUI.Button(new Rect(10, 360, 150, 40), "Reset Scene", buttonStyle))
-            {
-                // Destroy existing objects
-                Destroy(GameObject.Find("CampfireLight"));
-                foreach (GameObject log in GameObject.FindGameObjectsWithTag("CampfireLog")) Destroy(log);
-                foreach (GameObject p in flameParticles) Destroy(p);
-                foreach (GameObject p in smokeParticles) Destroy(p);
-                Destroy(proceduralTree);
-                Destroy(GameObject.Find("Plane"));
-
-                flameParticles.Clear();
-                smokeParticles.Clear();
-                treeRenderers.Clear();
-                originalColors.Clear();
-
-                // Re-setup
-                burnProgress = 0f;
-                treeHealth = 100f;
-                isFireActive = false;
-                isTreeBurning = false;
-                fireIntensity = 1.0f;
-                SetupScene();
+                ResetSimulation();
             }
 
-            GUI.Label(new Rect(Screen.width - 200, 10, 190, 30), $"FPS: {1.0f / Time.deltaTime:00}", labelStyle);
-            GUI.Label(new Rect(Screen.width - 200, 40, 190, 30), $"Unity: {Application.unityVersion}", labelStyle);
-            GUI.Label(new Rect(Screen.width - 200, 70, 190, 30), $"Platform: {Application.platform}", labelStyle);
-            GUI.Label(new Rect(Screen.width - 200, 100, 190, 30), "Mouse Drag: Orbit Camera", labelStyle);
+            GUI.Label(new Rect(10, Screen.height - 70, 300, 20), "Controls: A/D or Left/Right Arrows to rotate camera", labelStyle);
+            GUI.Label(new Rect(Screen.width - 200, 10, 190, 20), $"FPS: {1.0f / Time.deltaTime:F1}", labelStyle);
+            GUI.Label(new Rect(Screen.width - 200, 30, 190, 20), $"Unity: {Application.unityVersion}", labelStyle);
+            GUI.Label(new Rect(Screen.width - 200, 50, 190, 20), $"Platform: {Application.platform}", labelStyle);
+        }
+
+        void ResetSimulation()
+        {
+            isBurning = false;
+            fireIntensity = 0f;
+            burnProgress = 0f;
+            treeHealth = 100f;
+
+            if (campfireLight != null) campfireLight.intensity = 0f;
+            foreach (GameObject p in flameParticles) p.transform.localScale = Vector3.zero;
+            foreach (GameObject p in smokeParticles) p.transform.localScale = Vector3.zero;
+
+            // Reset tree colors and scales
+            foreach (var rend in treeRenderers)
+            {
+                if (rend != null)
+                {
+                    rend.material.color = originalColors[rend];
+                    if (rend.name.Contains("Foliage"))
+                    {
+                        // Re-apply original scale (assuming originalColors.Keys maintains order or can be mapped)
+                        // For simplicity, we'll just set a default scale if original scale isn't easily retrieved
+                        rend.transform.localScale = Vector3.one * (rend.name.Contains("Foliage_0") ? 1.6f : (rend.name.Contains("Foliage_1") ? 1.3f : (rend.name.Contains("Foliage_2") ? 1.25f : (rend.name.Contains("Foliage_3") ? 1.2f : 1.0f))));
+                    }
+                }
+            }
         }
     }
 }
