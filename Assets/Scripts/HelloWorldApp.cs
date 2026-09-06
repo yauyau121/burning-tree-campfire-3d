@@ -67,6 +67,32 @@ namespace OmniUnityApp
             }
         }
 
+        // --- Safe Shader & Material Resolver (Anti-Pink/Anti-Magenta Guaranteed) ---
+        private static Shader _safeShader;
+        private static Shader GetSafeShader()
+        {
+            if (_safeShader == null || !_safeShader.isSupported)
+            {
+                _safeShader = Shader.Find("Standard");
+                if (_safeShader == null || !_safeShader.isSupported) _safeShader = Shader.Find("Legacy Shaders/Diffuse");
+                if (_safeShader == null || !_safeShader.isSupported) _safeShader = Shader.Find("Mobile/Diffuse");
+                if (_safeShader == null || !_safeShader.isSupported) _safeShader = Shader.Find("Unlit/Color");
+                if (_safeShader == null || !_safeShader.isSupported) _safeShader = Shader.Find("Sprites/Default");
+            }
+            return _safeShader;
+        }
+
+        public static void ApplySafeColor(Renderer rend, Color color)
+        {
+            if (rend == null) return;
+            if (rend.sharedMaterial == null || rend.sharedMaterial.shader == null || rend.sharedMaterial.shader.name.Contains("InternalErrorShader") || rend.sharedMaterial.shader.name.Contains("Error"))
+            {
+                Shader s = GetSafeShader();
+                if (s != null) rend.material = new Material(s);
+            }
+            if (rend.material != null) rend.material.color = color;
+        }
+
         void Start()
         {
             InitializeUIStyles();
@@ -79,7 +105,7 @@ namespace OmniUnityApp
             GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Ground";
             ground.transform.localScale = Vector3.one * 5f;
-            ground.GetComponent<Renderer>().material.color = new Color(0.3f, 0.4f, 0.2f);
+            ApplySafeColor(ground.GetComponent<Renderer>(), new Color(0.3f, 0.4f, 0.2f));
 
             BuildCampfire(campfireCenter);
             proceduralTree = BuildProceduralTree(new Vector3(0, 0, 2.5f), 4.0f);
@@ -109,7 +135,7 @@ namespace OmniUnityApp
                 var smokeRend = smoke.GetComponent<Renderer>();
                 if (smokeRend != null)
                 {
-                    smokeRend.material.color = new Color(0.3f, 0.3f, 0.3f, 0.5f);
+                    ApplySafeColor(smokeRend, new Color(0.3f, 0.3f, 0.3f, 0.5f));
                 }
                 smokeParticles.Add(smoke);
             }
@@ -167,7 +193,7 @@ namespace OmniUnityApp
                 log.transform.position = center + new Vector3(Mathf.Sin(angle * Mathf.Deg2Rad) * 0.3f, 0.15f, Mathf.Cos(angle * Mathf.Deg2Rad) * 0.3f);
                 log.transform.rotation = Quaternion.Euler(60f, angle + 90f, 0f);
                 var rend = log.GetComponent<Renderer>();
-                if (rend != null) rend.material.color = new Color(0.25f, 0.14f, 0.08f); // Charred bark
+                if (rend != null) ApplySafeColor(rend, new Color(0.25f, 0.14f, 0.08f)); // Charred bark
             }
 
             // 2. Flickering Fire Light
@@ -187,7 +213,7 @@ namespace OmniUnityApp
             float scale = Mathf.Lerp(0.35f, 0.05f, progress);
             p.transform.localScale = Vector3.one * scale * fireIntensity;
             var r = p.GetComponent<Renderer>();
-            if (r != null) r.material.color = Color.Lerp(Color.yellow, Color.red, progress);
+            if (r != null) ApplySafeColor(r, Color.Lerp(Color.yellow, Color.red, progress));
             if (progress >= 1f)
             {
                 p.transform.position = origin + new Vector3(Random.Range(-0.2f, 0.2f), 0.1f, Random.Range(-0.2f, 0.2f));
@@ -204,7 +230,7 @@ namespace OmniUnityApp
             if (r != null)
             {
                 Color smokeColor = new Color(0.3f, 0.3f, 0.3f, Mathf.Lerp(0.5f, 0f, progress));
-                r.material.color = smokeColor;
+                ApplySafeColor(r, smokeColor);
             }
             if (progress >= 1f)
             {
@@ -224,7 +250,7 @@ namespace OmniUnityApp
             trunk.transform.localPosition = new Vector3(0f, height * 0.5f, 0f);
             trunk.transform.localScale = new Vector3(0.45f, height * 0.5f, 0.45f);
             var trunkRend = trunk.GetComponent<Renderer>();
-            if (trunkRend != null) trunkRend.material.color = new Color(0.38f, 0.22f, 0.12f);
+            if (trunkRend != null) ApplySafeColor(trunkRend, new Color(0.38f, 0.22f, 0.12f));
 
             // 2. Layered Foliage Clusters
             Vector3[] clusterOffsets = new Vector3[] {
@@ -247,7 +273,7 @@ namespace OmniUnityApp
                 if (fRend != null)
                 {
                     float greenTint = 0.6f + (i * 0.08f);
-                    fRend.material.color = new Color(0.18f, greenTint, 0.22f);
+                    ApplySafeColor(fRend, new Color(0.18f, greenTint, 0.22f));
                 }
             }
             return tree;
@@ -262,7 +288,7 @@ namespace OmniUnityApp
             {
                 if (rend != null)
                 {
-                    rend.material.color = Color.Lerp(originalColors[rend], charredColor, burnProgress);
+                    ApplySafeColor(rend, Color.Lerp(originalColors[rend], charredColor, burnProgress));
                     // Shrink leaves slightly
                     if (rend.name.Contains("Foliage"))
                     {
@@ -351,7 +377,7 @@ namespace OmniUnityApp
             {
                 if (rend != null)
                 {
-                    rend.material.color = originalColors[rend];
+                    ApplySafeColor(rend, originalColors[rend]);
                     if (rend.name.Contains("Foliage"))
                     {
                         // Re-apply original scale (assuming originalColors.Keys maintains order or can be mapped)
